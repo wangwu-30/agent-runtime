@@ -152,3 +152,25 @@ ADR-011 的锁顺序设计在 contracts 里有 `lock_key()` 方法，但 `Permis
 ### 14. `LEGAL_TRANSITIONS` 里 `RUNNING` 不能直接转到 `CLARIFYING`
 
 `CLARIFYING` 只能从 `VALIDATING` 进入（O2a 路径），但 `is_waiting()` 把 `CLARIFYING` 列为不发 heartbeat 的状态，注释里说"不占用 worker"。这是对的，但容易让实现者误以为可以从 `RUNNING` 直接进入 `CLARIFYING`，应在注释里明确说明入口只有 `VALIDATING → CLARIFYING`。
+
+---
+
+## TODO: task result 契约修复
+
+**问题**：`runtime.py:227` 直接把 `raw_result`（工具原始输出，含临时路径）作为 task result 返回。
+git 模式下 `merge_if_valid` 已把产物 merge 进主 repo，但返回的路径仍是已删除的 workspace 路径。
+no-git 模式下 workspace 被 `rmtree`，路径完全失效。
+
+**根因**：task result 和 tool result 没有分层。raw_result 是执行细节，属于 trace；task result 应描述 durable postcondition。
+
+**设计结论**（来自代码审查 + Codex consult）：
+- runtime 是执行引擎，持久化机制是 git merge（no-git 模式无持久化，by design）
+- task result 需要三层分离：tool result（trace 用）→ observation normalization → task result（consumer 用）
+- no-git 模式不应返回文件路径作为 result；git 模式应返回 repo 内的逻辑路径
+
+**待决策**（需要 force-thinker FORMALIZATION）：
+- task result 的正确数据结构（`outputs` 列表 vs 其他）
+- no-git 模式的 result 语义（null locator / 纯内容摘要 / 明确不支持持久产物）
+- 是否引入 `TaskOutput` 类型到 contracts.py
+
+**涉及文件**：`contracts.py`、`kernel/runtime.py`、`tools/builtin.py`、`tests/e2e_test.py`
